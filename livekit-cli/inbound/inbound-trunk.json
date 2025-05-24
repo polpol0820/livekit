@@ -1,0 +1,6 @@
+{
+    "trunk":{
+        "name": "zoiper inbound trunk",
+        "numbers": ["1234567890"]
+    }
+}

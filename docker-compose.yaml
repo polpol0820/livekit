@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:latest
+    container_name: livekit-redis
+    ports:
+      - "6379:6379"
+
+
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./livekit-server/config.yaml:/config.yaml:ro
+    command: ["--config","/config.yaml"]
+    depends_on:
+      - redis
+
+  livekit-sip:
+    image: livekit/sip:latest
+    container_name: livekit-sip
+    ports:
+      - "5060:5060/udp"
+    volumes:
+      - ./livekit-sip/config.yaml:/sip/config.yaml:ro
+    command: ["sip","/config.yaml"]
+    depends_on:
+      - redis
+      - livekit-server
+  
+  inbound-create:
+    container_name: inbound-create
+    image: livekit/livekit-cli:latest
+    environment:
+      - "API_KEY: devkey"
+      - "API_SECRET: devsecret"
+    volumes:
+      - ./livekit-cli/inbound/:/inbound:ro
+    command: ["sip","inbound","create", "/inbound/inbound-trunk.json","--api-key","devkey", "--api-secret","devsecret","--url","http://livekit-server:7880"]
+
+  dispatch-create:
+    container_name: dispatch-create
+    image: livekit/livekit-cli:latest
+    environment:
+      - "API_KEY: devkey"
+      - "API_SECRET: devsecret"
+    volumes:
+      - ./livekit-cli/dispatch-rule/:/dispatch-rule:ro
+    command: ["sip","dispatch","create", "/dispatch-rule/dispatch-rule.json","--api-key","devkey", "--api-secret","devsecret","--url","http://livekit-server:7880"]
