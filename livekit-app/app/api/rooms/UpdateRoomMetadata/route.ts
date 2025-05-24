@@ -1,0 +1,48 @@
+// app/api/rooms/update/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createAdminToken } from '@/lib/livekit'
+
+export async function POST(req: NextRequest) {
+  const apiKey = process.env.LIVEKIT_API_KEY
+  const apiSecret = process.env.LIVEKIT_API_SECRET
+  const host = process.env.LIVEKIT_URL || 'http://localhost:7880'
+
+  const body = await req.json()
+  const { room, metadata } = body
+
+  if (!room || !metadata) {
+    return NextResponse.json({ error: 'Missing room or metadata' }, { status: 400 })
+  }
+
+  if (!apiKey || !apiSecret || !host) {
+    return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+  }
+
+  try {
+    const token = await createAdminToken(apiKey, apiSecret, {
+      room: room,
+      roomAdmin: true,
+    })
+
+    const res = await fetch(`${host}/twirp/livekit.RoomService/UpdateRoomMetadata`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ room, metadata }),
+    })
+
+    const text = await res.text()
+    console.log('[📝] UpdateRoomMetadata response:', text)
+
+    if (!res.ok) {
+      return NextResponse.json({ error: 'Failed to update metadata', detail: text }, { status: res.status })
+    }
+
+    return NextResponse.json({ ok: true })
+  } catch (err: any) {
+    console.error('💥 Unexpected error:', err)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}

@@ -7,14 +7,25 @@ services:
     ports:
       - "6379:6379"
 
+  postgresql:
+    image: postgres:15
+    container_name: livekit-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: livekit
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
 
   livekit-server:
     image: livekit/livekit-server:latest
     container_name: livekit-server
     ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-50100:50000-50100/udp"
+      - "7880:7880"           # HTTP API
+      - "7881:7881"           # WebSocket signaling
+      - "50000-50100:50000-50100/udp"  # Media ports
     volumes:
       - ./livekit-server/config.yaml:/config.yaml:ro
     command: ["--config","/config.yaml"]
@@ -25,20 +36,20 @@ services:
     image: livekit/sip:latest
     container_name: livekit-sip
     ports:
-      - "5060:5060/udp"
+      - "5060:5060/udp"      # SIP signaling
     volumes:
       - ./livekit-sip/config.yaml:/sip/config.yaml:ro
     command: ["sip","/config.yaml"]
     depends_on:
       - redis
       - livekit-server
-  
+
   inbound-create:
     container_name: inbound-create
     image: livekit/livekit-cli:latest
     environment:
-      - "API_KEY: devkey"
-      - "API_SECRET: devsecret"
+      - API_KEY=devkey
+      - API_SECRET=devsecret
     volumes:
       - ./livekit-cli/inbound/:/inbound:ro
     command: ["sip","inbound","create", "/inbound/inbound-trunk.json","--api-key","devkey", "--api-secret","devsecret","--url","http://livekit-server:7880"]
@@ -47,8 +58,103 @@ services:
     container_name: dispatch-create
     image: livekit/livekit-cli:latest
     environment:
-      - "API_KEY: devkey"
-      - "API_SECRET: devsecret"
+      - API_KEY=devkey
+      - API_SECRET=devsecret
     volumes:
       - ./livekit-cli/dispatch-rule/:/dispatch-rule:ro
     command: ["sip","dispatch","create", "/dispatch-rule/dispatch-rule.json","--api-key","devkey", "--api-secret","devsecret","--url","http://livekit-server:7880"]
+
+  livekit-ingress:
+    image: livekit/ingress:latest
+    container_name: livekit-ingress
+    ports:
+      - "1935:1935"       # RTMP
+      - "8080:8080"       # WHIP/HTTP
+    volumes:
+      - ./livekit-ingress/config.yaml:/config.yaml:ro
+    environment:
+      - INGRESS_CONFIG_FILE=/config.yaml
+    depends_on:
+      - redis
+      - livekit-server
+
+  livekit-egress:
+    image: livekit/egress:latest
+    container_name: livekit-egress
+    volumes:
+      - ./livekit-egress/config.yaml:/config.yaml:ro
+    environment:
+      - EGRESS_CONFIG_FILE=/config.yaml
+    depends_on:
+      - redis
+      - livekit-server
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"         # Grafana Web UI
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    depends_on:
+      - redis
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    ports:
+      - "3002:3000"         # Metabase Web UI
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: livekit
+      MB_DB_PORT: 5432
+      MB_DB_USER: postgres
+      MB_DB_PASS: postgres
+      MB_DB_HOST: livekit-postgres
+    depends_on:
+      - postgresql
+
+  kibana:
+    image: kibana:8.18.0
+    container_name: kibana
+    ports:
+      - "5601:5601"         # Kibana UI
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+  elasticsearch:
+    image: elasticsearch:8.18.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"         # Elasticsearch API
+      - "9300:9300"
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    ports:
+      - "5678:5678"         # n8n Editor UI
+    volumes:
+      - n8n-data:/home/node/.n8n
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=livekit-postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=livekit
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=postgres
+    depends_on:
+      - postgresql
+
+volumes:
+  postgres-data:
+  grafana-storage:
+  elasticsearch-data:
+  n8n-data:
